@@ -250,6 +250,8 @@ class JsonPanFactory(freezable_factory(object, "_isFrozen")):
         else:
             return json.dumps(rtn, indent=indent, sort_keys=sort_keys)
 
+
+# noinspection PyInterpreter
 class CsvPanFactory(freezable_factory(object, "_isFrozen")):
     """
     Primary class for reading/writing csv files with PanDat objects.
@@ -300,6 +302,7 @@ class CsvPanFactory(freezable_factory(object, "_isFrozen")):
         This problem is even worse with df = pd.DataFrame({"a":["0100", "1200", "2300"]})
         """
         verify(os.path.isdir(dir_path), "%s not a directory path"%dir_path)
+        print('Test--------------------------Test')
         tbl_names = self._get_table_names(dir_path)
         rtn = {}
         for t, f in tbl_names.items():
