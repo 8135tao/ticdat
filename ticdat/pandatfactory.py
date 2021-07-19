@@ -817,6 +817,7 @@ class PanDatFactory(object):
         self.xls = pandatio.XlsPanFactory(self)
         self.sql = pandatio.SqlPanFactory(self)
         self.csv = pandatio.CsvPanFactory(self)
+        self.df = pandatio.DataFramePanFactory(self)
         self.json = pandatio.JsonPanFactory(self)
         self.pgsql = PostgresPanFactory(self)
 
