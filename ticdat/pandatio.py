@@ -715,9 +715,6 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
             kwargs_ = dict(kwargs)
             if "dtype" not in kwargs_:
                 kwargs_["dtype"] = self.pan_dat_factory._dtypes_for_pandas_read(t)
-                #print(f'表{t}的kwargs参数将被修改：')
-                #print(f'{kwargs_["dtype"]} \n')
-                
             for col, dtype in kwargs_["dtype"].items():
                 if f[col].notnull().all():
                     f[col] = f[col].astype(dtype)
