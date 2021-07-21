@@ -675,18 +675,18 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
         self.pan_dat_factory = pan_dat_factory
         self._isFrozen = True
 
-    def create_pan_dat(self, df_dict, fill_missing_fields=False, **kwargs):
+    def create_pan_dat(self, tbl_names, fill_missing_fields=False, **kwargs):
         """
-        Create a PanDat object from a directory of csv files.
+        Create a PanDat object from a directory of pandas dataframes.
 
-        :param db_file_path: the directory containing the .csv files.
+        :param tbl_names: the dictionay containing the dataframes.
 
         :param fill_missing_fields: boolean. If truthy, missing fields will be filled in
                                     with their default value. Otherwise, missing fields
                                     throw an Exception.
 
-        :param kwargs: additional named arguments to pass to pandas.read_csv
-
+        :param kwargs: additional named arguments to pass to pandas.read_csv.
+        
         :return: a PanDat object populated by the matching tables.
 
         caveats: Missing tables always throw an Exception.
@@ -706,25 +706,24 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
         This problem is even worse with df = pd.DataFrame({"a":["0100", "1200", "2300"]})
         """
         # verify(os.path.isdir(dir_path), "%s not a directory path" % dir_path)
-        print('Test-----------Tset---------------Test')
-
+        print('Test3-----------Test3---------------Test3')
         # tbl_names = self._get_table_names(dir_path)
-        tbl_names = df_dict
         rtn = {}
         for t, f in tbl_names.items():
             kwargs_ = dict(kwargs)
             if "dtype" not in kwargs_:
                 kwargs_["dtype"] = self.pan_dat_factory._dtypes_for_pandas_read(t)
+                
             for col, dtype in kwargs_["dtype"].items():
-                if f[col].notnull().all():
-                    f[col] = f[col].astype(dtype)
-
-                # if f[col].isnull().sum() > 0:
-                #     continue
-                # else:
-                #     f[col] = f[col].astype(dtype)
-            # rtn[t] = pd.read_csv(f, **kwargs_)
-            # rtn[t] = f.infer_objects()
+                try:                
+                    if dtype == float:
+                        f[col] = f[col].apply(lambda x: float('nan') if x == 'nan' else eval(x))
+                    else:
+                        f[col] = f[col].apply(lambda x: float('nan') if x == 'nan' else x)
+                except Exception:
+                    traceback.print_exc()
+                    continue
+                    
             rtn[t] = f
         missing_tables = {t for t in self.pan_dat_factory.all_tables if t not in rtn}
         if missing_tables:

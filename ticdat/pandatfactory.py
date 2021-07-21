@@ -277,6 +277,12 @@ class PanDatFactory(object):
         rtn = {}
         assert table in self.all_tables
         for f, dt in self.data_types.get(table, {}).items():
+            if dt.datetime:
+                rtn[f] = 'object'
+            if dt.number_allowed:
+                rtn[f] = float
+#             if dt.must_be_int:
+#                 rtn[f] = int
             if not dt.datetime and not dt.number_allowed and dt.strings_allowed:
                 rtn[f] = str
         if self.parameters and table == "parameters":
