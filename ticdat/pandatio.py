@@ -18,6 +18,7 @@ try:
 except:
     numpy = None
 
+import traceback
 _longest_sheet = 30  # seems to be an Excel limit with pandas
 
 
