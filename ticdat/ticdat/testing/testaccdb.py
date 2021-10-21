@@ -1,0 +1,324 @@
+import os
+import ticdat.utils as utils
+from ticdat.ticdatfactory import TicDatFactory
+from ticdat.testing.ticdattestutils import dietData, dietSchema, netflowData, netflowSchema, firesException
+from ticdat.testing.ticdattestutils import sillyMeData, sillyMeSchema, makeCleanDir, fail_to_debugger
+from ticdat.testing.ticdattestutils import makeCleanPath, addNetflowForeignKeys, addDietForeignKeys, am_on_windows
+from ticdat.testing.ticdattestutils import spacesSchema, dietSchemaWeirdCase, dietSchemaWeirdCase2
+from ticdat.testing.ticdattestutils import copyDataDietWeirdCase, copyDataDietWeirdCase2
+import shutil
+import unittest
+from ticdat.mdb import _connection_str, _can_accdb_unit_test, py
+
+
+#uncomment decorator to drop into debugger for assertTrue, assertFalse failures
+#@fail_to_debugger
+class TestAccdb(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        makeCleanDir(_scratchDir)
+    @classmethod
+    def tearDownClass(cls):
+        if am_on_windows:  # working around issue ticdat/ticdat#1
+            try:
+                shutil.rmtree(_scratchDir)
+            except:
+                pass
+        else:
+            shutil.rmtree(_scratchDir)
+    def firesException(self, f):
+        e = firesException(f)
+        if e :
+            self.assertTrue("TicDatError" in e.__class__.__name__)
+            return str(e)
+
+    def testDups(self):
+        if not _can_accdb_unit_test:
+            return
+        tdf = TicDatFactory(one = [["a"],["b, c"]],
+                            two = [["a", "b"],["c"]],
+                            three = [["a", "b", "c"],[]])
+        tdf2 = TicDatFactory(**{t:[[],["a", "b", "c"]] for t in tdf.all_tables})
+        td = tdf2.TicDat(**{t:[[1, 2, 1], [1, 2, 2], [2, 1, 3], [2, 2, 3], [1, 2, 2], [11, 1, 2]]
+                            for t in tdf.all_tables})
+        f = makeCleanPath(os.path.join(_scratchDir, "testDups.accdb"))
+        tdf2.mdb.write_file(td, f)
+        #shutil.copy(f, "dups.accdb") #uncomment to make readonly test file as .accdb
+        dups = tdf.mdb.find_duplicates(f)
+        self.assertTrue(dups ==  {'three': {(1, 2, 2): 2}, 'two': {(1, 2): 3}, 'one': {1: 3, 2: 2}})
+
+    def testDiet(self):
+        if not _can_accdb_unit_test:
+            return
+        tdf = TicDatFactory(**dietSchema())
+        ticDat = tdf.freeze_me(tdf.TicDat(**{t:getattr(dietData(),t) for t in tdf.primary_key_fields}))
+        filePath = makeCleanPath(os.path.join(_scratchDir, "diet.accdb"))
+        tdf.mdb.write_file(ticDat, filePath)
+        #shutil.copy(filePath, "diet.accdb") #uncomment to make readonly test file as .accdb
+        self.assertFalse(tdf.mdb.find_duplicates(filePath))
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+        def changeit() :
+            accdbTicDat.categories["calories"]["minNutrition"]=12
+        changeit()
+        self.assertFalse(tdf._same_data(ticDat, accdbTicDat))
+
+        self.assertTrue(self.firesException(lambda : tdf.mdb.write_file(ticDat, filePath)))
+        tdf.mdb.write_file(ticDat, filePath, allow_overwrite=True)
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+        self.assertTrue(self.firesException(changeit))
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+
+    def testNetflow(self):
+        if not _can_accdb_unit_test:
+            return
+        tdf = TicDatFactory(**netflowSchema())
+        addNetflowForeignKeys(tdf)
+        ticDat = tdf.freeze_me(tdf.TicDat(**{t:getattr(netflowData(),t) for t in tdf.all_tables}))
+        filePath = os.path.join(_scratchDir, "netflow.accdb")
+        tdf.mdb.write_file(ticDat, filePath)
+        #shutil.copy(filePath, "netflow.accdb") #uncomment to make readonly test file as .accdb
+        self.assertFalse(tdf.mdb.find_duplicates(filePath))
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+        def changeIt() :
+            accdbTicDat.inflow['Pencils', 'Boston']["quantity"] = 12
+        self.assertTrue(self.firesException(changeIt))
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+        self.assertFalse(self.firesException(changeIt))
+        self.assertFalse(tdf._same_data(ticDat, accdbTicDat))
+
+        pkHacked = netflowSchema()
+        pkHacked["nodes"][0] = ["nimrod"]
+        tdfHacked = TicDatFactory(**pkHacked)
+        ticDatHacked = tdfHacked.TicDat(**{t : getattr(ticDat, t) for t in tdf.all_tables})
+        tdfHacked.mdb.write_file(ticDatHacked, makeCleanPath(filePath))
+        self.assertTrue(self.firesException(lambda : tdfHacked.mdb.write_file(ticDat, filePath)))
+        tdfHacked.mdb.write_file(ticDat, filePath, allow_overwrite =True)
+        self.assertTrue("Unable to recognize field name in table nodes" in
+                        self.firesException(lambda  :tdf.mdb.create_tic_dat(filePath)))
+
+    def testSilly(self):
+        if not _can_accdb_unit_test:
+            return
+        tdf = TicDatFactory(**sillyMeSchema())
+        ticDat = tdf.TicDat(**sillyMeData())
+        filePath = os.path.join(_scratchDir, "silly.accdb")
+        self.assertTrue(firesException(lambda : tdf.mdb.write_file(ticDat, makeCleanPath(filePath))))
+        def sillyMeCleanData() :
+            return {
+                "a" : {"1" : (1, 2, "3"), "b" : (12, 12.2, "twelve"), "c" : (11, 12, "thirt")},
+                "b" : {(1, 2, "3") : 1, (3, 4, "b") : 12},
+                "c" : ((1, "2", 3, 4), (0.2, "b", 0.3, 0.4), (1.2, "b", 12, 24) )
+            }
+        ticDat = tdf.TicDat(**sillyMeCleanData())
+        self.assertTrue(firesException(lambda : tdf.mdb.write_file(ticDat, makeCleanPath(filePath))))
+        def makeCleanSchema() :
+            tdf.mdb.write_schema(makeCleanPath(filePath), a={"aData3" : "text"},
+                        b = {"bField1" : "int", "bField2" : "int"}, c={"cData2" : "text"})
+            return filePath
+        tdf.mdb.write_file(ticDat, makeCleanSchema())
+        self.assertFalse(tdf.mdb.find_duplicates(filePath))
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+
+        schema2 = sillyMeSchema()
+        schema2["b"][0] = ("bField2", "bField1", "bField3")
+        schema3 = sillyMeSchema()
+        schema3["a"][1] = ("aData2", "aData3", "aData1")
+        schema4 = sillyMeSchema()
+        schema4["a"][1] = ("aData1", "aData3")
+        schema5 = sillyMeSchema()
+        _tuple = lambda x : tuple(x) if utils.containerish(x) else (x,)
+        for t in ("a", "b") :
+            schema5[t][1] = _tuple(schema5[t][1]) + _tuple(schema5[t][0])
+        schema5["a"][0], schema5["b"][0] =  (),  []
+        schema6 = sillyMeSchema()
+        schema6["d"] =  [["dField"],()]
+
+        tdf2, tdf3, tdf4, tdf5, tdf6 = (TicDatFactory(**x) for x in (schema2, schema3, schema4, schema5, schema6))
+        tdf5.set_generator_tables(("a","c"))
+
+        ticDat2 = tdf2.mdb.create_tic_dat(filePath)
+        self.assertFalse(tdf._same_data(ticDat, ticDat2))
+
+        ticDat3 = tdf3.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf._same_data(ticDat, ticDat3))
+
+        ticDat4 = tdf4.mdb.create_tic_dat(filePath)
+        for t in ["a","b"]:
+            for k,v in getattr(ticDat4, t).items() :
+                for _k, _v in v.items() :
+                    self.assertTrue(getattr(ticDat, t)[k][_k] == _v)
+                if set(v) == set(getattr(ticDat, t)[k]) :
+                    self.assertTrue(t == "b")
+                else :
+                    self.assertTrue(t == "a")
+
+        ticDat5 = tdf5.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf5._same_data(tdf._keyless(ticDat), ticDat5))
+        self.assertTrue(callable(ticDat5.a) and callable(ticDat5.c) and not callable(ticDat5.b))
+
+        self.assertTrue("table d" in self.firesException(lambda  : tdf6.mdb.create_tic_dat(filePath)))
+
+        ticDat.a["theboger"] = (1, None, "twelve")
+        if am_on_windows:
+            filePath = filePath.replace("silly.accdb", "silly_2.accdb")  # working around issue ticdat/ticdat#1
+        tdf.mdb.write_file(ticDat, makeCleanSchema())
+        ticDatNone = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(ticDat, ticDatNone))
+        self.assertTrue(ticDatNone.a["theboger"]["aData2"] == None)
+
+    def testInjection(self):
+        if not _can_accdb_unit_test:
+            return
+        problems = [ "'", "''", '"', '""']
+        tdf = TicDatFactory(boger = [["a"], ["b"]])
+        dat = tdf.TicDat()
+        for v,k in enumerate(problems):
+            dat.boger[k]=str(v)
+            dat.boger[str(v)]=k
+        filePath = makeCleanPath(os.path.join(_scratchDir, "injection.accdb"))
+        tdf.mdb.write_schema(filePath, boger = {"b":"text"})
+        tdf.mdb.write_file(dat, filePath)
+        self.assertFalse(tdf.mdb.find_duplicates(filePath))
+        dat2 = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(dat,dat2))
+
+    def testSpacey(self):
+        if not _can_accdb_unit_test:
+            return
+        tdf = TicDatFactory(**spacesSchema())
+        spacesData =  {
+        "a_table" : {1 : {"a Data 3":3, "a Data 2":2, "a Data 1":1},
+                     22 : (1.1, 12, 12), 0.23 : (11, 12, 11)},
+        "b_table" : {("1", "2", "3") : 1, ("a", "b", "b") : 12},
+        "c_table" : (("1", "2", "3", 4),
+                      {"c Data 4":55, "c Data 2":"b", "c Data 3":"c", "c Data 1":"a"},
+                      ("a", "b", "12", 24) ) }
+
+        dat = tdf.TicDat(**spacesData)
+        filePath = makeCleanPath(os.path.join(_scratchDir, "spacey.accdb"))
+        tdf.mdb.write_schema(filePath, a_table = {"a Field":"double"},
+                                       c_table = {"c Data 1":"text", "c Data 2":"text",
+                                                  "c Data 3":"text", "c Data 4":"int"})
+        tdf.mdb.write_file(dat, filePath)
+        self.assertFalse(tdf.mdb.find_duplicates(filePath))
+        dat2 = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(dat,dat2))
+
+        with py.connect(_connection_str(filePath)) as con:
+            for t in tdf.all_tables:
+                con.cursor().execute("SELECT * INTO [%s] FROM %s"%(t.replace("_", " "), t)).commit()
+                con.cursor().execute("DROP TABLE %s"%t).commit()
+        #shutil.copy(filePath, "spaces.accdb") #uncomment to make readonly test file as .accdb
+        dat3 = tdf.mdb.create_tic_dat(filePath, freeze_it=True)
+        self.assertTrue(tdf._same_data(dat, dat3))
+
+    def testWeirdDiets(self):
+        if not _can_accdb_unit_test:
+            return
+        filePath = os.path.join(_scratchDir, "weirdDiet.accdb")
+        tdf = TicDatFactory(**dietSchema())
+        ticDat = tdf.freeze_me(tdf.TicDat(**{t:getattr(dietData(),t) for t in tdf.primary_key_fields}))
+
+        tdf2 = TicDatFactory(**dietSchemaWeirdCase())
+        dat2 = copyDataDietWeirdCase(ticDat)
+        tdf2.mdb.write_file(dat2, filePath , allow_overwrite=True)
+        accdbTicDat = tdf.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf._same_data(ticDat, accdbTicDat))
+
+
+        tdf3 = TicDatFactory(**dietSchemaWeirdCase2())
+        dat3 = copyDataDietWeirdCase2(ticDat)
+        tdf3.mdb.write_file(dat3, makeCleanPath(filePath))
+        with py.connect(_connection_str(filePath)) as con:
+            con.cursor().execute("SELECT * INTO [nutrition quantities] FROM nutrition_quantities").commit()
+            con.cursor().execute("DROP TABLE nutrition_quantities").commit()
+
+        accdbTicDat2 = tdf3.mdb.create_tic_dat(filePath)
+        self.assertTrue(tdf3._same_data(dat3, accdbTicDat2))
+        with py.connect(_connection_str(filePath)) as con:
+            con.cursor().execute("create table nutrition_quantities (boger int)").commit()
+
+        self.assertTrue(self.firesException(lambda : tdf3.mdb.create_tic_dat(filePath)))
+
+    def testNulls(self):
+        tdf = TicDatFactory(table=[["field one"], ["field two"]])
+        dat = tdf.TicDat(table = [[None, 100], [200, "this"], ["that", 300], [300, None], [400, "that"]])
+        file_path = os.path.join(_scratchDir, "nulls.accdb")
+        tdf.mdb.write_file(dat, file_path)
+        dat_1 = tdf.mdb.create_tic_dat(file_path)
+        self.assertTrue(tdf._same_data(dat, dat_1))
+
+        tdf = TicDatFactory(table=[["field one"], ["field two"]])
+        for f in ["field one", "field two"]:
+            tdf.set_data_type("table", f, max=float("inf"), inclusive_max=True)
+        tdf.set_infinity_io_flag(None)
+        dat_inf = tdf.TicDat(table = [[float("inf"), 100], [200, "this"], ["that", 300], [300, float("inf")],
+                                      [400, "that"]])
+        dat_1 = tdf.mdb.create_tic_dat(file_path)
+        self.assertTrue(tdf._same_data(dat_inf, dat_1))
+        tdf.mdb.write_file(dat_inf, makeCleanPath(file_path))
+        dat_1 = tdf.mdb.create_tic_dat(file_path)
+        self.assertTrue(tdf._same_data(dat_inf, dat_1))
+
+        tdf = TicDatFactory(table=[["field one"], ["field two"]])
+        for f in ["field one", "field two"]:
+            tdf.set_data_type("table", f, min=-float("inf"), inclusive_min=True)
+        tdf.set_infinity_io_flag(None)
+        dat_1 = tdf.mdb.create_tic_dat(file_path)
+        self.assertFalse(tdf._same_data(dat_inf, dat_1))
+        dat_inf = tdf.TicDat(table = [[float("-inf"), 100], [200, "this"], ["that", 300], [300, -float("inf")],
+                                      [400, "that"]])
+        self.assertTrue(tdf._same_data(dat_inf, dat_1))
+
+    def testDietWithInfFlagging(self):
+        tdf = TicDatFactory(**dietSchema())
+        dat = tdf.copy_tic_dat(dietData())
+        tdf.set_infinity_io_flag(999999999)
+        path = os.path.join(_scratchDir, "dietInfFlag.accdb")
+        tdf.mdb.write_file(dat, path)
+        dat_1 = tdf.mdb.create_tic_dat(path)
+        self.assertTrue(tdf._same_data(dat, dat_1))
+        tdf = tdf.clone()
+        dat_1 = tdf.mdb.create_tic_dat(path)
+        self.assertTrue(tdf._same_data(dat, dat_1))
+        tdf = TicDatFactory(**dietSchema())
+        dat_1 = tdf.mdb.create_tic_dat(path)
+        self.assertFalse(tdf._same_data(dat, dat_1))
+
+    def test_parameters(self):
+        path = os.path.join(_scratchDir, "parameters.accdb")
+        tdf = TicDatFactory(parameters=[["Key"], ["Value"]])
+        tdf.add_parameter("Something", 100)
+        tdf.add_parameter("Different", 'boo', strings_allowed='*', number_allowed=False)
+        dat = tdf.TicDat(parameters = [["Something", float("inf")], ["Different", "inf"]])
+        tdf.mdb.write_file(dat, path)
+        dat_ = tdf.mdb.create_tic_dat(path)
+        self.assertTrue(tdf._same_data(dat, dat_))
+
+    def test_missing_tables(self):
+        path = os.path.join(_scratchDir, "missing.accdb")
+        tdf_1 = TicDatFactory(this = [["Something"],["Another"]])
+        tdf_2 = TicDatFactory(**dict(tdf_1.schema(), that=[["What", "Ever"],[]]))
+        dat = tdf_1.TicDat(this=[["a", 2],["b", 3],["c", 5]])
+        tdf_1.mdb.write_file(dat, path)
+        mdb_dat = tdf_2.mdb.create_tic_dat(path)
+        self.assertTrue(tdf_1._same_data(dat, mdb_dat))
+
+    # def testDateTime(self):
+    # SKIPPING FOR NOW - see issue 38
+
+_scratchDir = TestAccdb.__name__ + "_scratch"
+
+# Run the tests.
+if __name__ == "__main__":
+    td = TicDatFactory()
+    if not _can_accdb_unit_test:
+        print("!!!!!!!!!FAILING ACCDB UNIT TESTS DUE TO FAILURE TO LOAD LIBRARIES AND CONFIGURE!!!!!!!!")
+    unittest.main()

@@ -11,15 +11,16 @@ from ticdat.utils import all_underscore_replacements, stringish, dictish, contai
 from itertools import product, chain
 from collections import defaultdict
 import datetime
+import traceback
 import inspect
+import ast
+
 
 try:
     import numpy
 except:
     numpy = None
 
-import ast
-import traceback
 _longest_sheet = 30  # seems to be an Excel limit with pandas
 
 
@@ -333,6 +334,7 @@ class CsvPanFactory(freezable_factory(object, "_isFrozen")):
                   (dir_path, "\n".join(missing_tables)))
         missing_fields = {(t, f) for t in rtn for f in all_fields(self.pan_dat_factory, t)
                           if f not in rtn[t].columns}
+        
         if fill_missing_fields:
             for t, f in list(missing_fields):
                 if f in self.pan_dat_factory.default_values.get(t, {}):
@@ -634,8 +636,7 @@ class XlsPanFactory(freezable_factory(object, "_isFrozen")):
         :param case_space_sheet_names: boolean - make best guesses how to add spaces and upper case
                                       characters to sheet names
 
-        :return:
-
+        :return
         caveats: The row names (index) isn't written.
         """
         self._verify_differentiable_sheet_names()
@@ -678,6 +679,7 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
         self._isFrozen = True
 
     def create_pan_dat(self, tbl_names, fill_missing_fields=False, **kwargs):
+        
         """
         Create a PanDat object from a directory of pandas dataframes.
 
@@ -710,7 +712,7 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
         # verify(os.path.isdir(dir_path), "%s not a directory path" % dir_path)
         print('测试：从dataframe中创建schema……')
         # tbl_names = self._get_table_names(dir_path)
-
+        
         rtn = {}
         for t, f in tbl_names.items():
             kwargs_ = dict(kwargs)
@@ -730,8 +732,8 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
                     print("-----------------------------")
                     traceback.print_exc()
                     continue
-
             rtn[t] = f
+            
         missing_tables = {t for t in self.pan_dat_factory.all_tables if t not in rtn}
         if missing_tables:
             print("The following table names could not be found in the dataframe_lists.\n%s\n" %
@@ -748,69 +750,4 @@ class DataFramePanFactory(freezable_factory(object, "_isFrozen")):
                # [(t, os.path.basename(tbl_names[t]), f) for t, f in missing_fields]
                [(t, f) for t, f in missing_fields])
         return _clean_pandat_creator(self.pan_dat_factory, rtn)
-
-        missing_tables = {t for t in self.pan_dat_factory.all_tables if t not in rtn}
-        if missing_tables:
-            print("The following table names could not be found in the dataframe_lists.\n%s\n" %
-                  ("\n".join(missing_tables)))
-        missing_fields = {(t, f) for t in rtn for f in all_fields(self.pan_dat_factory, t)
-                          if f not in rtn[t].columns}
-        if fill_missing_fields:
-            for t, f in list(missing_fields):
-                if f in self.pan_dat_factory.default_values.get(t, {}):
-                    rtn[t][f] = self.pan_dat_factory.default_values[t][f]
-                    missing_fields.remove((t, f))
-        verify(not missing_fields,
-               "The following (table, file_name, field) triplets are missing fields.\n%s" %
-               # [(t, os.path.basename(tbl_names[t]), f) for t, f in missing_fields]
-               [(t, f) for t, f in missing_fields])
-        return _clean_pandat_creator(self.pan_dat_factory, rtn)
-
-    # def _get_table_names(self, dir_path):
-    #     rtn = {}
-    #     for table in self.pan_dat_factory.all_tables:
-    #         rtn[table] = [path for f in os.listdir(dir_path) for path in [os.path.join(dir_path, f)]
-    #                       if os.path.isfile(path) and
-    #                       f.lower().replace(" ", "_") == "%s.csv"%table.lower()]
-    #         verify(len(rtn[table]) <= 1, "Multiple possible csv files found for table %s" % table)
-    #         if len(rtn[table]) == 1:
-    #             rtn[table] = rtn[table][0]
-    #         else:
-    #             rtn.pop(table)
-    #     return rtn
-
-    # def write_directory(self, pan_dat, dir_path, case_space_table_names=False, index=False, **kwargs):
-    #     """
-    #     write the PanDat data to a collection of csv files
-    #
-    #     :param pan_dat: the PanDat object to write
-    #
-    #     :param dir_path: the directory in which to write the csv files
-    #                          Set to falsey if using con argument.
-    #
-    #     :param case_space_table_names: boolean - make best guesses how to add spaces and upper case
-    #                                    characters to table names
-    #
-    #     :param index: boolean - whether or not to write the index.
-    #
-    #     :param kwargs: additional named arguments to pass to pandas.to_csv
-    #
-    #     :return:
-    #
-    #     caveats: The row names (index) isn't written (unless kwargs indicates it should be).
-    #     """
-    #     verify(not os.path.isfile(dir_path), "A file is not a valid directory path")
-    #     msg = []
-    #     verify(self.pan_dat_factory.good_pan_dat_object(pan_dat, msg.append),
-    #            "pan_dat not a good object for this factory : %s"%"\n".join(msg))
-    #     pan_dat = self.pan_dat_factory._pre_write_adjustment(pan_dat)
-    #     verify("index" not in kwargs, "index should be passed as a non-kwargs argument")
-    #     kwargs["index"] = index
-    #     case_space_table_names = case_space_table_names and \
-    #                              len(set(self.pan_dat_factory.all_tables)) == \
-    #                              len(set(map(case_space_to_pretty, self.pan_dat_factory.all_tables)))
-    #     if not os.path.isdir(dir_path) :
-    #         os.mkdir(dir_path)
-    #     for t in self.pan_dat_factory.all_tables :
-    #         f = os.path.join(dir_path, (case_space_to_pretty(t) if case_space_table_names else t) + ".csv")
-    #         getattr(pan_dat, t).to_csv(f, **kwargs)
+    
